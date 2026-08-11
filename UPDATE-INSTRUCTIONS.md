@@ -1,23 +1,60 @@
-# Buea Car Project — Messaging Update
+# Vercel Daily Keep-Awake Update
 
-This update adds:
+This update adds a once-daily Vercel Cron job plus a System Status indicator in **Admin Settings**.
 
-- WhatsApp sending without the WhatsApp Cloud API: **Open in WhatsApp** uses a click-to-chat link with the reminder prefilled.
-- Preferred WhatsApp sender shown as **00237678662454**. The WhatsApp Web/Desktop/phone session must actually be logged in with that number; a website cannot choose the sender account for you.
-- Automatic phone cleanup: `+`, spaces, dashes, hyphens and brackets are stripped so member phone values contain digits only.
-- Supabase phone-normalization trigger so direct database inserts/updates are also cleaned.
-- A **Bulk SMS** page that can filter recipients by group/outstanding vows, personalize a message template, copy the clean number list and export a CSV for a bulk-SMS provider portal.
-- A single-member **Open SMS app** button on the reminder page.
+## 1. Update Supabase first
 
-## Update an existing deployment
+Open **Supabase > SQL Editor > New query** and run the complete contents of:
 
-1. In Supabase, open **SQL Editor > New query**.
-2. Paste and run `supabase/add-phone-normalization.sql`.
-3. In GitHub, replace `app/page.js` and `app/globals.css` with the files in this update package and commit.
-4. Vercel should redeploy automatically from the GitHub commit.
-5. The old `/app/api/whatsapp/send/route.js` may remain in your repository; the updated page no longer calls it. You can delete that route later if you want.
-6. Old WhatsApp API environment variables are no longer needed for this mode. Groq is still used for AI drafting, so keep `GROQ_API_KEY` if you want AI-written reminders and letters.
+`supabase/add-vercel-cron-keep-alive.sql`
 
-## Bulk SMS note
+This adds the health-check fields used by the Admin Settings indicator.
 
-The current Bulk SMS page prepares a CSV rather than transmitting SMS itself. Use the CSV in the web dashboard of your chosen SMS provider. If you later want one-click automatic SMS sending, the provider's approved API credentials can be integrated as a separate step.
+## 2. Upload/replace files in GitHub
+
+Upload these paths from this update package into the same paths in your existing repository:
+
+- `app/api/keep-alive/route.js` (new)
+- `app/page.js` (replace)
+- `app/globals.css` (replace)
+- `vercel.json` (new, or merge the `crons` section if you already have one)
+
+The `.env.example` file is reference only; do not commit a real secret into it.
+
+## 3. Add CRON_SECRET in Vercel
+
+Open **Vercel > your project > Settings > Environment Variables** and add:
+
+`CRON_SECRET`
+
+Use a long random value of at least 16 characters. Keep it server-side only. Do not name it `NEXT_PUBLIC_CRON_SECRET`.
+
+Example format only (make your own value):
+
+`buea-cron-KEEP-PRIVATE-2026-very-long`
+
+Apply it to **Production** (you may also select Preview/Development, but Vercel Cron runs on production deployments).
+
+## 4. Redeploy
+
+Commit the GitHub changes. Vercel should redeploy automatically. If not, redeploy the latest production deployment manually.
+
+## 5. Confirm the cron exists
+
+In Vercel open **Project > Settings > Cron Jobs**. You should see:
+
+- Path: `/api/keep-alive`
+- Schedule: `0 5 * * *`
+
+This is once per day at 05:00 UTC. In Cameroon that is 06:00 WAT. On Vercel Hobby, the request may arrive at any point within the 06:00–06:59 WAT hour.
+
+## 6. Check the admin indicator
+
+After the first successful cron run, sign into the portal and open **Admin Settings**. The System Status panel should show:
+
+- Database: Supabase responding
+- Status: Online
+- Last automatic check: date/time in WAT
+- Keep-awake job: Vercel Cron → Supabase
+
+The endpoint performs three lightweight database reads and records the health-check timestamp. It does not add or change members, vows, contributions, expenses, or financial amounts.
