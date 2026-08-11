@@ -1,0 +1,21 @@
+{
+  "name": "Buea Regional Car Project",
+  "short_name": "Buea Car Project",
+  "description": "Contribution, vow and accountability management for the Deeper Life Bible Church Buea Region Regional Car Project.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#305684",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

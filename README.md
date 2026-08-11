@@ -118,3 +118,14 @@ The included `/api/whatsapp/send` route uses the WhatsApp Cloud API text-message
 - **Cash balance** = money received minus all recorded expenditures.
 
 This separation is intentional: promises should never be counted as cash in hand.
+
+## Browser icon and social sharing preview
+
+The project includes a Deeper Life logo favicon and a 1200×630 Open Graph social card for WhatsApp, Facebook, LinkedIn and other services that read Open Graph metadata.
+
+- Browser favicon: `public/favicon.ico` and PNG icon variants
+- Social preview card: `public/social-share.png`
+- Social metadata: `app/layout.js`
+- Optional public site URL: `NEXT_PUBLIC_SITE_URL=https://buea-car-project.vercel.app`
+
+After changing these files in GitHub, redeploy the project in Vercel. Browsers and WhatsApp may cache old icons/previews, so a hard refresh or sharing the URL once with a harmless query string such as `?v=2` can help test the new preview.
