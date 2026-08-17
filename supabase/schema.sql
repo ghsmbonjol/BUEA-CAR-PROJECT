@@ -33,6 +33,19 @@ create table if not exists public.members (
   created_at timestamptz not null default now()
 );
 
+-- Keep every member phone number digits-only, even if an admin pastes spaces, +, dashes or brackets.
+create or replace function public.normalize_member_phone()
+returns trigger language plpgsql as $$
+begin
+  new.phone := nullif(regexp_replace(coalesce(new.phone, ''), '[^0-9]', '', 'g'), '');
+  return new;
+end $$;
+
+drop trigger if exists trg_normalize_member_phone on public.members;
+create trigger trg_normalize_member_phone
+before insert or update of phone on public.members
+for each row execute function public.normalize_member_phone();
+
 -- Initial Bolifamba Group directory supplied for the project.
 -- Safe to re-run: it only inserts a name when that same name is not already in Bolifamba Group.
 insert into public.members(full_name, group_id)
@@ -91,6 +104,24 @@ create table if not exists public.expenses (
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now()
 );
+
+
+-- Singleton project settings record. The administrator can update the car fundraising target.
+create table if not exists public.project_settings (
+  id integer primary key default 1 check (id = 1),
+  car_target_amount numeric(14,2) not null default 0 check (car_target_amount >= 0),
+  carryover_amount numeric(14,2) not null default 0 check (carryover_amount >= 0),
+  carryover_label text not null default 'Congregation contribution / First vow total',
+  last_keep_alive_at timestamptz,
+  last_keep_alive_status text not null default 'pending' check (last_keep_alive_status in ('pending','online','error')),
+  last_keep_alive_note text,
+  updated_by uuid references auth.users(id),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.project_settings(id, car_target_amount)
+values (1, 0)
+on conflict (id) do nothing;
 
 create table if not exists public.ai_messages (
   id uuid primary key default gen_random_uuid(),
@@ -227,13 +258,14 @@ alter table public.members enable row level security;
 alter table public.vows enable row level security;
 alter table public.contributions enable row level security;
 alter table public.expenses enable row level security;
+alter table public.project_settings enable row level security;
 alter table public.ai_messages enable row level security;
 alter table public.stakeholder_letters enable row level security;
 alter table public.audit_log enable row level security;
 
 -- Admin-only MVP policies. You can later add group-level viewers.
 do $$ declare t text; begin
-  foreach t in array array['profiles','groups','members','vows','contributions','expenses','ai_messages','stakeholder_letters','audit_log'] loop
+  foreach t in array array['profiles','groups','members','vows','contributions','expenses','project_settings','ai_messages','stakeholder_letters','audit_log'] loop
     execute format('drop policy if exists admin_all on public.%I',t);
     execute format('create policy admin_all on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())',t);
   end loop;

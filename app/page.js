@@ -14,6 +14,7 @@ const whatsAppRecipient = value => {
 const PREFERRED_WHATSAPP_SENDER = '00237678662454'
 const tabs = ['Dashboard','Members','Vows','Contributions','Expenses','AI Reminders','Bulk SMS','Stakeholder Letters','Admin Settings']
 const defaultGroups = ['Molyko Group','Buea Town Group','Bolifamba Group','Muea Group']
+const DEFAULT_CARRYOVER_LABEL = 'Congregation contribution / First vow total'
 
 export default function Home() {
   const [supabase, setSupabase] = useState(null)
@@ -26,8 +27,9 @@ export default function Home() {
   const [vows, setVows] = useState([])
   const [contributions, setContributions] = useState([])
   const [expenses, setExpenses] = useState([])
-  const [projectSettings, setProjectSettings] = useState({id:1,car_target_amount:0,last_keep_alive_at:null,last_keep_alive_status:'pending',last_keep_alive_note:''})
+  const [projectSettings, setProjectSettings] = useState({id:1,car_target_amount:0,carryover_amount:0,carryover_label:DEFAULT_CARRYOVER_LABEL,last_keep_alive_at:null,last_keep_alive_status:'pending',last_keep_alive_note:''})
   const [targetForm, setTargetForm] = useState('')
+  const [carryoverForm, setCarryoverForm] = useState({amount:'',label:DEFAULT_CARRYOVER_LABEL})
   const [login, setLogin] = useState({email:'',password:''})
   const [memberForm,setMemberForm]=useState({full_name:'',phone:'',group_id:'',is_stakeholder:false})
   const [vowForm,setVowForm]=useState({member_id:'',amount_pledged:'',notes:''})
@@ -62,8 +64,8 @@ export default function Home() {
     ])
     const err=g.error||m.error||v.error||c.error||e.error||s.error
     if(err) setNotice(err.message)
-    const settings=s.data||{id:1,car_target_amount:0,last_keep_alive_at:null,last_keep_alive_status:'pending',last_keep_alive_note:''}
-    setGroups(g.data||[]);setMembers(m.data||[]);setVows(v.data||[]);setContributions(c.data||[]);setExpenses(e.data||[]);setProjectSettings(settings);setTargetForm(settings.car_target_amount?String(settings.car_target_amount):'');setLoading(false)
+    const settings=s.data||{id:1,car_target_amount:0,carryover_amount:0,carryover_label:DEFAULT_CARRYOVER_LABEL,last_keep_alive_at:null,last_keep_alive_status:'pending',last_keep_alive_note:''}
+    setGroups(g.data||[]);setMembers(m.data||[]);setVows(v.data||[]);setContributions(c.data||[]);setExpenses(e.data||[]);setProjectSettings(settings);setTargetForm(settings.car_target_amount?String(settings.car_target_amount):'');setCarryoverForm({amount:settings.carryover_amount?String(settings.carryover_amount):'',label:settings.carryover_label||DEFAULT_CARRYOVER_LABEL});setLoading(false)
   }
 
   async function signIn(e){e.preventDefault();setNotice('');const {error}=await supabase.auth.signInWithPassword(login);if(error)setNotice(error.message)}
@@ -90,15 +92,28 @@ export default function Home() {
     if(error)return setNotice(error.message)
     setProjectSettings(data);setTargetForm(String(data.car_target_amount));setNotice('Car target amount saved successfully.')
   }
+  async function saveCarryover(e){
+    e.preventDefault();setNotice('')
+    const amount=Number(carryoverForm.amount||0)
+    const label=carryoverForm.label.trim()||DEFAULT_CARRYOVER_LABEL
+    if(!Number.isFinite(amount)||amount<0)return setNotice('Enter a valid carryover amount of zero or more.')
+    const payload={id:1,carryover_amount:amount,carryover_label:label,updated_by:session.user.id,updated_at:new Date().toISOString()}
+    const {data,error}=await supabase.from('project_settings').upsert(payload,{onConflict:'id'}).select().single()
+    if(error)return setNotice(error.message)
+    setProjectSettings(data);setCarryoverForm({amount:data.carryover_amount?String(data.carryover_amount):'',label:data.carryover_label||DEFAULT_CARRYOVER_LABEL});setNotice('Carryover / congregation contribution saved successfully.')
+  }
 
   const stats=useMemo(()=>{
+    const carryover=Number(projectSettings.carryover_amount||0)
     const received=contributions.reduce((s,x)=>s+Number(x.amount),0)
     const pledged=vows.reduce((s,x)=>s+Number(x.amount_pledged),0)
     const outstanding=vows.reduce((s,x)=>s+Number(x.balance),0)
     const carSpent=expenses.filter(x=>x.expense_type==='car_project').reduce((s,x)=>s+Number(x.amount),0)
     const otherSpent=expenses.filter(x=>x.expense_type==='other_purpose').reduce((s,x)=>s+Number(x.amount),0)
-    return {received,pledged,outstanding,carSpent,otherSpent,balance:received-carSpent-otherSpent}
-  },[vows,contributions,expenses])
+    const paidOrCarryover=carryover+received
+    const committed=carryover+pledged
+    return {carryover,received,paidOrCarryover,pledged,committed,outstanding,carSpent,otherSpent,balance:paidOrCarryover-carSpent-otherSpent}
+  },[vows,contributions,expenses,projectSettings.carryover_amount])
 
   const groupStats=useMemo(()=>groups.map(g=>{
     const ids=members.filter(m=>m.group_id===g.id).map(m=>m.id)
@@ -139,20 +154,53 @@ export default function Home() {
     <header className="topbar"><div className="brand"><img src="/deeper-life-logo.png" alt="Regional logo"/><div><h1>Deeper Life Buea Region — Car Project</h1><p>Contribution, vow & accountability management</p></div></div><div className="top-actions"><span className="user-chip">Admin: {session.user.email}</span><button className="btn btn-outline" onClick={signOut}>Sign out</button></div></header>
     <div className="layout"><aside className="sidebar">{tabs.map(t=><button key={t} className={`nav-btn ${tab===t?'active':''}`} onClick={()=>setTab(t)}>{t}</button>)}<div className="footer-brand">Groups: Molyko • Buea Town • Bolifamba • Muea<br/><br/>Designed by <strong>JODEL TECHNOLOGIES</strong></div></aside>
       <main className="main"><div className="hero"><div><h2>{tab}</h2><p>Transparent stewardship for the Buea regional vehicle project.</p></div><button className="btn btn-soft" onClick={refresh}>Refresh data</button></div>{notice&&<div className={`notice ${notice.includes('success')||notice.includes('recorded')||notice.includes('added')||notice.includes('saved')?'success':''}`}>{notice}</div>}
-        {tab==='Dashboard'&&<Dashboard stats={stats} groupStats={groupStats} vows={vows} carTarget={Number(projectSettings.car_target_amount||0)}/>} 
+        {tab==='Dashboard'&&<Dashboard stats={stats} groupStats={groupStats} vows={vows} carTarget={Number(projectSettings.car_target_amount||0)} carryoverLabel={projectSettings.carryover_label||DEFAULT_CARRYOVER_LABEL}/>} 
         {tab==='Members'&&<Members members={members} groups={groups} form={memberForm} setForm={setMemberForm} submit={addMember}/>} 
-        {tab==='Vows'&&<Vows vows={vows} members={members} form={vowForm} setForm={setVowForm} submit={addVow}/>} 
+        {tab==='Vows'&&<Vows vows={vows} members={members} form={vowForm} setForm={setVowForm} submit={addVow} stats={stats} carTarget={Number(projectSettings.car_target_amount||0)} carryoverLabel={projectSettings.carryover_label||DEFAULT_CARRYOVER_LABEL}/>} 
         {tab==='Contributions'&&<Contributions data={contributions} vows={vows} members={members} form={contribForm} setForm={setContribForm} submit={addContribution}/>} 
         {tab==='Expenses'&&<Expenses data={expenses} form={expenseForm} setForm={setExpenseForm} submit={addExpense}/>} 
         {tab==='AI Reminders'&&<AIReminders members={members} vows={vows} selected={aiMember} setSelected={setAiMember} draft={aiDraft} setDraft={setAiDraft} generate={generateReminder} send={sendWhatsApp} openSMS={openSMS} busy={aiBusy}/>} 
         {tab==='Bulk SMS'&&<BulkSMS members={members} vows={vows} groups={groups}/>} 
         {tab==='Stakeholder Letters'&&<Letters letter={letter} setLetter={setLetter} draft={letterDraft} setDraft={setLetterDraft} generate={generateLetter} busy={aiBusy}/>} 
-        {tab==='Admin Settings'&&<AdminSettings settings={projectSettings} carTarget={Number(projectSettings.car_target_amount||0)} targetForm={targetForm} setTargetForm={setTargetForm} submit={saveTarget}/>} 
+        {tab==='Admin Settings'&&<AdminSettings settings={projectSettings} carTarget={Number(projectSettings.car_target_amount||0)} targetForm={targetForm} setTargetForm={setTargetForm} submit={saveTarget} carryoverForm={carryoverForm} setCarryoverForm={setCarryoverForm} saveCarryover={saveCarryover}/>} 
       </main></div>
   </div>
 }
 
-function Dashboard({stats,groupStats,vows,carTarget}){const second=vows.filter(v=>v.vow_sequence===2);const targetProgress=carTarget>0?Math.min(100,stats.received/carTarget*100):0;const targetLeft=carTarget>0?Math.max(carTarget-stats.received,0):0;return <><section className="target-panel"><div><div className="target-kicker">REGIONAL CAR FUNDRAISING TARGET</div><div className="target-amount">{carTarget>0?money(carTarget):'Not set yet'}</div><p>{carTarget>0?`${money(targetLeft)} still needed based on contributions received.`:'Go to Admin Settings to enter the approved target amount for the car project.'}</p></div><div className="target-progress"><div className="target-progress-head"><strong>{carTarget>0?`${Math.round(targetProgress)}% raised`:'Target pending'}</strong><span>{money(stats.received)} received</span></div><div className="target-bar"><span style={{width:`${targetProgress}%`}}/></div></div></section><div className="cards"><Metric label="Total vowed" value={money(stats.pledged)}/><Metric label="Money received" value={money(stats.received)} cls="green"/><Metric label="Outstanding vows" value={money(stats.outstanding)}/><Metric label="Car-project spending" value={money(stats.carSpent)}/><Metric label="Other-purpose use" value={money(stats.otherSpent)} cls="red"/><Metric label="Cash balance" value={money(stats.balance)} cls={stats.balance>=0?'green':'red'}/></div><div className="grid2"><section className="panel"><h3>Group performance</h3>{groupStats.map(g=><div className="group-row" key={g.name}><div><strong>{g.name}</strong><br/><small>{g.count} people</small></div><div><div className="bar"><span style={{width:`${Math.min(100,g.pledged?g.received/g.pledged*100:0)}%`}}/></div><small>{money(g.received)} of {money(g.pledged)}</small></div><strong>{g.pledged?Math.round(g.received/g.pledged*100):0}%</strong></div>)}</section><section className="panel"><h3>Second vow list</h3>{second.length===0?<p>No second vows recorded yet.</p>:<div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow</th><th>Given</th><th>Balance</th></tr></thead><tbody>{second.map(v=><tr key={v.id}><td>{v.member_name}</td><td>{v.group_name}</td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td></tr>)}</tbody></table></div>}</section></div></>}
+function Dashboard({stats,groupStats,vows,carTarget,carryoverLabel}){
+  const second=vows.filter(v=>v.vow_sequence===2).sort((a,b)=>a.member_name.localeCompare(b.member_name)||a.vow_sequence-b.vow_sequence)
+  const committedProgress=carTarget>0?Math.min(100,stats.committed/carTarget*100):0
+  const paidProgress=carTarget>0?Math.min(100,stats.paidOrCarryover/carTarget*100):0
+  const commitmentLeft=carTarget>0?Math.max(carTarget-stats.committed,0):0
+  const cashLeft=carTarget>0?Math.max(carTarget-stats.paidOrCarryover,0):0
+  return <>
+    <section className="target-panel">
+      <div>
+        <div className="target-kicker">REGIONAL CAR FUNDRAISING TARGET</div>
+        <div className="target-amount">{carTarget>0?money(carTarget):'Not set yet'}</div>
+        <p>{carTarget>0?`${money(commitmentLeft)} still needs new vows/commitments. ${money(cashLeft)} still needs to be received as cash.`:'Go to Admin Settings to enter the approved target amount for the car project.'}</p>
+      </div>
+      <div className="target-progress-stack">
+        <div className="target-progress"><div className="target-progress-head"><strong>{carTarget>0?`${Math.round(committedProgress)}% committed`:'Target pending'}</strong><span>{money(stats.committed)} carryover + vows</span></div><div className="target-bar"><span style={{width:`${committedProgress}%`}}/></div></div>
+        <div className="target-progress"><div className="target-progress-head"><strong>{carTarget>0?`${Math.round(paidProgress)}% paid / carried over`:'Target pending'}</strong><span>{money(stats.paidOrCarryover)} received</span></div><div className="target-bar paid"><span style={{width:`${paidProgress}%`}}/></div></div>
+      </div>
+    </section>
+    <div className="cards">
+      <Metric label={carryoverLabel||DEFAULT_CARRYOVER_LABEL} value={money(stats.carryover)} cls="green"/>
+      <Metric label="New vows recorded" value={money(stats.pledged)}/>
+      <Metric label="Paid on recorded vows" value={money(stats.received)} cls="green"/>
+      <Metric label="Paid + carryover" value={money(stats.paidOrCarryover)} cls="green"/>
+      <Metric label="Outstanding vows" value={money(stats.outstanding)}/>
+      <Metric label="Car-project spending" value={money(stats.carSpent)}/>
+      <Metric label="Other-purpose use" value={money(stats.otherSpent)} cls="red"/>
+      <Metric label="Cash balance" value={money(stats.balance)} cls={stats.balance>=0?'green':'red'}/>
+    </div>
+    <div className="grid2">
+      <section className="panel"><h3>Group performance</h3>{groupStats.map(g=><div className="group-row" key={g.name}><div><strong>{g.name}</strong><br/><small>{g.count} people</small></div><div><div className="bar"><span style={{width:`${Math.min(100,g.pledged?g.received/g.pledged*100:0)}%`}}/></div><small>{money(g.received)} of {money(g.pledged)}</small></div><strong>{g.pledged?Math.round(g.received/g.pledged*100):0}%</strong></div>)}</section>
+      <section className="panel"><h3>Second vow list</h3>{second.length===0?<p>No second vows recorded yet.</p>:<div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow</th><th>Given</th><th>Balance</th></tr></thead><tbody>{second.map(v=><tr key={v.id}><td>{v.member_name}</td><td>{v.group_name}</td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td></tr>)}</tbody></table></div>}</section>
+    </div>
+  </>
+}
 function Metric({label,value,cls=''}){return <div className="card"><div className="metric-label">{label}</div><div className={`metric-value ${cls}`}>{value}</div></div>}
 function Members({members,groups,form,setForm,submit}){
   const sortedGroups=[...groups].sort((a,b)=>a.name.localeCompare(b.name))
@@ -187,10 +235,43 @@ function Members({members,groups,form,setForm,submit}){
     </section>
   </>
 }
-function Vows({vows,members,form,setForm,submit}){return <><section className="panel"><h3>Record a vow</h3><div className="notice">A second vow is allowed only after the previous vow balance is zero.</div><form className="form-grid" onSubmit={submit}><div><label>Member</label><select required value={form.member_id} onChange={e=>setForm({...form,member_id:e.target.value})}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name} — {m.groups?.name}</option>)}</select></div><div><label>Vow amount (FCFA)</label><input required min="1" type="number" value={form.amount_pledged} onChange={e=>setForm({...form,amount_pledged:e.target.value})}/></div><div className="wide"><label>Notes</label><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div><div><button className="btn btn-primary">Record vow</button></div></form></section><section className="panel"><h3>Vow register</h3><div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow #</th><th>Vowed</th><th>Given</th><th>Balance</th><th>Status</th></tr></thead><tbody>{vows.map(v=><tr key={v.id}><td>{v.member_name}</td><td>{v.group_name}</td><td><span className="badge">{v.vow_sequence}</span></td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td><td><span className={`badge ${Number(v.balance)<=0?'green':'red'}`}>{Number(v.balance)<=0?'Fulfilled':'Outstanding'}</span></td></tr>)}</tbody></table></div></section></>}
+function Vows({vows,members,form,setForm,submit,stats,carTarget,carryoverLabel}){
+  const [copyState,setCopyState]=useState('')
+  const sortedVows=[...vows].sort((a,b)=>a.member_name.localeCompare(b.member_name)||a.vow_sequence-b.vow_sequence)
+  const commitmentLeft=carTarget>0?Math.max(carTarget-stats.committed,0):0
+  const cashLeft=carTarget>0?Math.max(carTarget-stats.paidOrCarryover,0):0
+  const vowLines=sortedVows.map((v,i)=>{
+    const paid=Number(v.amount_paid||0), balance=Number(v.balance||0)
+    const status=balance<=0?'PAID':paid>0?'PART-PAID':'VOWED'
+    return `${i+1}. ${v.member_name} — ${v.group_name}
+   Vow ${v.vow_sequence}: ${money(v.amount_pledged)} | Paid: ${money(paid)} | Balance: ${money(balance)} | ${status}`
+  })
+  const whatsAppText=[
+    '*BUEA REGIONAL CAR PROJECT — VOW UPDATE*',
+    carTarget>0?`Target: ${money(carTarget)}`:'Target: Not set',
+    `${carryoverLabel||DEFAULT_CARRYOVER_LABEL}: ${money(stats.carryover)} | PAID / CARRYOVER`,
+    `New vows recorded: ${money(stats.pledged)}`,
+    `Total committed (carryover + vows): ${money(stats.committed)}`,
+    `Paid on recorded vows: ${money(stats.received)}`,
+    `Total paid / carried over: ${money(stats.paidOrCarryover)}`,
+    carTarget>0?`Balance still to be vowed/committed: ${money(commitmentLeft)}`:'',
+    carTarget>0?`Balance still to be received in cash: ${money(cashLeft)}`:'',
+    '',
+    '*VOW LIST — A TO Z*',
+    ...(vowLines.length?vowLines:['No vows recorded yet.'])
+  ].filter(Boolean).join('\n')
+  const copyForWhatsApp=async()=>{
+    try{await navigator.clipboard.writeText(whatsAppText);setCopyState('Copied — ready to paste in WhatsApp.')}catch{setCopyState('Copy failed. Select the text below and copy it manually.')}
+  }
+  return <>
+    <section className="panel"><h3>Record a vow</h3><div className="notice">A second vow is allowed only after the previous vow balance is zero. New vows reduce the target's <strong>commitment balance</strong>; only actual payments and carryover reduce the <strong>cash still needed</strong>.</div><form className="form-grid" onSubmit={submit}><div><label>Member</label><select required value={form.member_id} onChange={e=>setForm({...form,member_id:e.target.value})}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name} — {m.groups?.name}</option>)}</select></div><div><label>Vow amount (FCFA)</label><input required min="1" type="number" value={form.amount_pledged} onChange={e=>setForm({...form,amount_pledged:e.target.value})}/></div><div className="wide"><label>Notes</label><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div><div><button className="btn btn-primary">Record vow</button></div></form></section>
+    <section className="panel whatsapp-post-panel"><div className="section-action-head"><div><h3>WhatsApp vow posting list</h3><p>Automatically sorted alphabetically by member name. The carryover/opening contribution is shown as paid/carryover, followed by vow, paid and balance figures.</p></div><button className="btn btn-primary" type="button" onClick={copyForWhatsApp}>Copy for WhatsApp</button></div>{copyState&&<div className={`notice ${copyState.startsWith('Copied')?'success':'error'}`}>{copyState}</div>}<textarea className="whatsapp-copy-box" readOnly value={whatsAppText}/></section>
+    <section className="panel"><h3>Vow register — alphabetical</h3><div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow #</th><th>Vowed</th><th>Given</th><th>Balance</th><th>Status</th></tr></thead><tbody>{sortedVows.map(v=><tr key={v.id}><td>{v.member_name}</td><td>{v.group_name}</td><td><span className="badge">{v.vow_sequence}</span></td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td><td><span className={`badge ${Number(v.balance)<=0?'green':'red'}`}>{Number(v.balance)<=0?'Paid':'Outstanding'}</span></td></tr>)}</tbody></table></div></section>
+  </>
+}
 function Contributions({data,vows,members,form,setForm,submit}){const memberVows=vows.filter(v=>!form.member_id||v.member_id===form.member_id);return <><section className="panel"><h3>Record contribution received</h3><form className="form-grid" onSubmit={submit}><div><label>Member</label><select required value={form.member_id} onChange={e=>setForm({...form,member_id:e.target.value,vow_id:''})}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name}</option>)}</select></div><div><label>Vow</label><select required value={form.vow_id} onChange={e=>setForm({...form,vow_id:e.target.value})}><option value="">Select vow</option>{memberVows.map(v=><option key={v.id} value={v.id}>Vow {v.vow_sequence} — balance {money(v.balance)}</option>)}</select></div><div><label>Amount received</label><input type="number" min="1" required value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></div><div><label>Date</label><input type="date" required value={form.payment_date} onChange={e=>setForm({...form,payment_date:e.target.value})}/></div><div><label>Method</label><select value={form.method} onChange={e=>setForm({...form,method:e.target.value})}><option>Cash</option><option>Mobile Money</option><option>Bank</option><option>Other</option></select></div><div className="wide"><label>Notes / receipt reference</label><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div><div><button className="btn btn-primary">Save contribution</button></div></form></section><section className="panel"><h3>Contribution history</h3><div className="table-wrap"><table className="table"><thead><tr><th>Date</th><th>Name</th><th>Vow #</th><th>Amount</th><th>Method</th><th>Notes</th></tr></thead><tbody>{data.map(c=><tr key={c.id}><td>{c.payment_date}</td><td>{c.members?.full_name}</td><td>{c.vows?.vow_sequence}</td><td>{money(c.amount)}</td><td>{c.method}</td><td>{c.notes||'—'}</td></tr>)}</tbody></table></div></section></>}
 function Expenses({data,form,setForm,submit}){return <><section className="panel"><h3>Record money used</h3><div className="notice">Use “Other purpose” for every amount taken from the fund for something not directly connected to buying/preparing the regional vehicle. This keeps stewardship transparent.</div><form className="form-grid" onSubmit={submit}><div><label>Amount</label><input type="number" min="1" required value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></div><div><label>Date</label><input type="date" required value={form.expense_date} onChange={e=>setForm({...form,expense_date:e.target.value})}/></div><div><label>Use category</label><select value={form.expense_type} onChange={e=>setForm({...form,expense_type:e.target.value})}><option value="car_project">Car project</option><option value="other_purpose">Other purpose</option></select></div><div><label>Approved by</label><input required value={form.approved_by} onChange={e=>setForm({...form,approved_by:e.target.value})}/></div><div className="full"><label>Purpose / explanation</label><input required value={form.purpose} onChange={e=>setForm({...form,purpose:e.target.value})}/></div><div><button className="btn btn-red">Record use of funds</button></div></form></section><section className="panel"><h3>Expense / fund-use register</h3><div className="table-wrap"><table className="table"><thead><tr><th>Date</th><th>Category</th><th>Purpose</th><th>Amount</th><th>Approved by</th></tr></thead><tbody>{data.map(x=><tr key={x.id}><td>{x.expense_date}</td><td><span className={`badge ${x.expense_type==='other_purpose'?'red':''}`}>{x.expense_type==='car_project'?'Car project':'Other purpose'}</span></td><td>{x.purpose}</td><td>{money(x.amount)}</td><td>{x.approved_by}</td></tr>)}</tbody></table></div></section></>}
-function AdminSettings({settings,carTarget,targetForm,setTargetForm,submit}){
+function AdminSettings({settings,carTarget,targetForm,setTargetForm,submit,carryoverForm,setCarryoverForm,saveCarryover}){
   const lastCheck=settings?.last_keep_alive_at?new Date(settings.last_keep_alive_at):null
   const ageMs=lastCheck?Date.now()-lastCheck.getTime():Infinity
   const fresh=lastCheck&&ageMs<=36*60*60*1000&&settings?.last_keep_alive_status==='online'
@@ -211,8 +292,9 @@ function AdminSettings({settings,carTarget,targetForm,setTargetForm,submit}){
       {settings?.last_keep_alive_note&&<div className="status-note">Last result: {settings.last_keep_alive_note}</div>}
       <p className="field-help">If this becomes “Check overdue”, open Vercel → Project → Settings → Cron Jobs and inspect the function logs. On Vercel Hobby, daily jobs may run at any time within the scheduled hour.</p>
     </section>
-    <section className="panel settings-panel"><div className="settings-heading"><div><span className="badge">Administrator only</span><h3>Regional car target amount</h3><p>Enter the approved amount the Buea Region intends to raise for the car project. This figure is used for the fundraising progress shown on the dashboard.</p></div><div className="settings-current"><small>Current target</small><strong>{carTarget>0?money(carTarget):'Not set'}</strong></div></div><form className="target-form" onSubmit={submit}><div><label>Target amount (FCFA)</label><input type="number" min="1" step="1" required placeholder="e.g. 15000000" value={targetForm} onChange={e=>setTargetForm(e.target.value)}/><small className="field-help">You can change this later if the approved vehicle budget changes.</small></div><button className="btn btn-primary">Save target amount</button></form></section>
-    <section className="panel"><h3>How the target is calculated</h3><p className="settings-copy"><strong>Fundraising progress</strong> compares actual contributions received with the target amount. Vows that have not yet been paid are not counted as money raised. Expenses and money used for other purposes continue to appear separately on the dashboard for accountability.</p></section>
+    <section className="panel settings-panel"><div className="settings-heading"><div><span className="badge">Administrator only</span><h3>Regional car target amount</h3><p>Enter the approved amount the Buea Region intends to raise for the car project. The dashboard shows both commitment progress from vows and actual paid/carryover progress.</p></div><div className="settings-current"><small>Current target</small><strong>{carTarget>0?money(carTarget):'Not set'}</strong></div></div><form className="target-form" onSubmit={submit}><div><label>Target amount (FCFA)</label><input type="number" min="1" step="1" required placeholder="e.g. 15000000" value={targetForm} onChange={e=>setTargetForm(e.target.value)}/><small className="field-help">You can change this later if the approved vehicle budget changes.</small></div><button className="btn btn-primary">Save target amount</button></form></section>
+    <section className="panel carryover-panel"><div className="settings-heading"><div><span className="badge green">Paid / carried over</span><h3>Carryover / congregation contribution</h3><p>Add money that was already received before the detailed member-by-member tracking started. You can name it “Carryover”, “Congregation contribution”, “First vow total amount”, or another clear description.</p></div><div className="settings-current"><small>Current carryover</small><strong>{money(settings?.carryover_amount||0)}</strong></div></div><form className="carryover-form" onSubmit={saveCarryover}><div><label>Name shown on dashboard and WhatsApp list</label><input required value={carryoverForm.label} onChange={e=>setCarryoverForm({...carryoverForm,label:e.target.value})} placeholder={DEFAULT_CARRYOVER_LABEL}/><small className="field-help">Example: Congregation contribution, Carryover, or First vow total amount.</small></div><div><label>Paid / carryover amount (FCFA)</label><input type="number" min="0" step="1" required value={carryoverForm.amount} onChange={e=>setCarryoverForm({...carryoverForm,amount:e.target.value})} placeholder="0"/><small className="field-help">This amount counts as already received and reduces the cash still needed toward the target.</small></div><button className="btn btn-primary">Save carryover amount</button></form><div className="notice carryover-warning"><strong>Avoid double counting:</strong> if this figure already represents earlier first-vow money, do not also enter the same money again as individual contribution transactions.</div></section>
+    <section className="panel"><h3>How the target balances are calculated</h3><p className="settings-copy"><strong>Commitment progress</strong> = carryover + all vows recorded. It shows how much of the target has been covered by promises/commitments as vows come in. <strong>Paid / carryover progress</strong> = carryover + actual contribution transactions received. It shows real money received. Expenses remain separate and reduce the cash balance, not the historical amount raised.</p></section>
   </>
 }
 function AIReminders({members,vows,selected,setSelected,draft,setDraft,generate,send,openSMS,busy}){const m=members.find(x=>x.id===selected);const latest=vows.filter(v=>v.member_id===selected).sort((a,b)=>b.vow_sequence-a.vow_sequence)[0];return <section className="panel"><h3>AI reminder & no-API WhatsApp</h3><div className="notice"><strong>Preferred sender: {PREFERRED_WHATSAPP_SENDER}.</strong> WhatsApp is opened through its click-to-chat link, so no WhatsApp API key is needed. The browser cannot force a sender account: make sure WhatsApp Web/Desktop or the phone is logged in with {PREFERRED_WHATSAPP_SENDER} before you click send.</div><div className="form-grid"><div className="wide"><label>Member</label><select value={selected} onChange={e=>{setSelected(e.target.value);setDraft('')}}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name} — {m.groups?.name}</option>)}</select></div><div><label>Current vow</label><input readOnly value={latest?`Vow ${latest.vow_sequence}: ${money(latest.balance)} left`:'No vow selected'}/></div><div><label>Digits-only phone</label><input readOnly value={digitsOnly(m?.phone||'')}/></div><div><button className="btn btn-soft" disabled={busy} onClick={generate}>{busy?'Generating…':'Generate reminder'}</button></div><div><button className="btn btn-primary" disabled={busy||!draft} onClick={send}>Open in WhatsApp</button></div><div><button className="btn btn-outline" disabled={busy||!draft} onClick={openSMS}>Open SMS app</button></div><div className="full"><label>Review / edit before sending</label><textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Generated reminder appears here…"/></div></div></section>}
