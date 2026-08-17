@@ -48,3 +48,11 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}
 .carryover-panel{border-top:4px solid var(--success)}.carryover-form{display:grid;grid-template-columns:minmax(260px,1.3fr) minmax(220px,.8fr) auto;gap:12px;align-items:end;padding-top:16px;border-top:1px solid var(--line)}.carryover-warning{margin:14px 0 0}
 @media(max-width:900px){.carryover-form{grid-template-columns:1fr 1fr}.carryover-form .btn{grid-column:1/-1}.section-action-head{flex-direction:column}.section-action-head .btn{width:100%}}
 @media(max-width:650px){.carryover-form{grid-template-columns:1fr}.carryover-form .btn{grid-column:auto}.whatsapp-copy-box{min-height:430px}}
+
+/* Safe vow corrections */
+.btn-small{padding:7px 11px;font-size:12px}
+.vow-edit-row td{background:#f8fbff;border-top:0!important;padding:14px!important}
+.vow-edit-form{display:grid;grid-template-columns:minmax(220px,1fr) minmax(210px,.8fr) minmax(260px,1.2fr) auto;gap:12px;align-items:end;border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+.vow-edit-notes{min-width:0}.vow-edit-actions{display:flex;gap:8px;align-items:center}.vow-edit-actions .btn{white-space:nowrap}
+@media(max-width:1000px){.vow-edit-form{grid-template-columns:1fr 1fr}.vow-edit-notes{grid-column:1/-1}.vow-edit-actions{grid-column:1/-1}}
+@media(max-width:650px){.vow-edit-form{grid-template-columns:1fr}.vow-edit-notes,.vow-edit-actions{grid-column:auto}.vow-edit-actions{flex-direction:column;align-items:stretch}.vow-edit-actions .btn{width:100%}}

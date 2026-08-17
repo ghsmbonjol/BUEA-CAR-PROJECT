@@ -17,6 +17,7 @@ A deployable starter admin portal for the Deeper Life Buea Region vehicle projec
 - Admin-managed regional car target amount with separate commitment and paid/carryover progress.
 - Carryover/opening money that can be labelled “Congregation contribution”, “First vow total amount”, or another clear name.
 - Alphabetically sorted vow register plus a one-click WhatsApp-ready A–Z posting list.
+- Safe vow corrections: edit a wrongly entered amount or note, and change the member before any payment is attached.
 - Second-vow list.
 - Groq-powered reminder drafting with an admin review step.
 - No-API WhatsApp sending flow: the system opens WhatsApp click-to-chat with the message prefilled.
@@ -67,6 +68,10 @@ This prevents unpaid vows from being treated as cash. If the carryover amount al
 For an existing deployment, run `supabase/add-carryover-setting.sql` once in **Supabase > SQL Editor** before deploying this version. New installations already include the fields in `supabase/schema.sql`.
 
 The **Vows** tab also includes a **WhatsApp vow posting list**. It sorts names alphabetically and includes the carryover line, each vow amount, amount paid, balance, and a simple status such as `PAID`, `PART-PAID`, or `VOWED`. Click **Copy for WhatsApp** and paste the prepared text into the group.
+
+### Correcting a wrongly entered vow
+
+In the **Vows** tab, click **Edit** beside a vow. The vow amount and notes can be corrected. The member can also be changed while no payment has been attached to that vow. Once a payment exists, the member is locked so the payment history remains connected correctly. The app prevents reducing a vow below money already paid and prevents an edit that would invalidate a later vow.
 
 ## Drag-and-drop / dashboard deployment path
 

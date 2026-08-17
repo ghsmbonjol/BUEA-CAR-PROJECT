@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { getBrowserSupabase } from '@/lib/supabase'
 
 const money = n => `FCFA ${Number(n || 0).toLocaleString()}`
@@ -81,6 +81,38 @@ export default function Home() {
     const {error}=await supabase.from('vows').insert({...vowForm,amount_pledged:Number(vowForm.amount_pledged),vow_sequence:sequence})
     if(error)return setNotice(error.message);setVowForm({member_id:'',amount_pledged:'',notes:''});setNotice(`Vow ${sequence} recorded.`);refresh()
   }
+  async function updateVow(vowId,changes){
+    setNotice('')
+    const current=vows.find(v=>v.id===vowId)
+    if(!current){setNotice('That vow could not be found. Refresh and try again.');return false}
+    const amount=Number(changes.amount_pledged)
+    const paid=Number(current.amount_paid||0)
+    if(!Number.isFinite(amount)||amount<=0){setNotice('Enter a valid vow amount greater than zero.');return false}
+    if(amount<paid){setNotice(`The vow cannot be reduced below ${money(paid)} because that amount has already been paid.`);return false}
+
+    const laterVow=vows.some(v=>v.member_id===current.member_id&&v.vow_sequence>current.vow_sequence)
+    if(laterVow&&amount>paid){
+      setNotice(`This earlier vow already has a later vow after it. Its corrected amount cannot exceed the ${money(paid)} already paid, otherwise the later vow would no longer be valid.`)
+      return false
+    }
+
+    let memberId=changes.member_id||current.member_id
+    let sequence=current.vow_sequence
+    if(memberId!==current.member_id){
+      if(paid>0){setNotice('The member cannot be changed after a payment has been recorded against this vow. Correct the amount or notes only.');return false}
+      const destination=vows.filter(v=>v.member_id===memberId&&v.id!==vowId).sort((a,b)=>a.vow_sequence-b.vow_sequence)
+      const last=destination.at(-1)
+      if(last&&Number(last.balance)>0){setNotice(`The selected member still has ${money(last.balance)} outstanding on Vow ${last.vow_sequence}. Finish that vow before moving this vow to the member.`);return false}
+      sequence=(last?.vow_sequence||0)+1
+    }
+
+    const {error}=await supabase.from('vows').update({member_id:memberId,vow_sequence:sequence,amount_pledged:amount,notes:changes.notes?.trim()||null}).eq('id',vowId)
+    if(error){setNotice(error.message);return false}
+    const member=members.find(m=>m.id===memberId)
+    setNotice(`Vow ${sequence} for ${member?.full_name||current.member_name} updated successfully.`)
+    await refresh()
+    return true
+  }
   async function addContribution(e){e.preventDefault();setNotice('');const vow=vows.find(v=>v.id===contribForm.vow_id);const payload={...contribForm,amount:Number(contribForm.amount),member_id:vow?.member_id||contribForm.member_id};const {error}=await supabase.from('contributions').insert(payload);if(error)return setNotice(error.message);setContribForm({...contribForm,amount:'',notes:''});setNotice('Contribution recorded.');refresh()}
   async function addExpense(e){e.preventDefault();setNotice('');const {error}=await supabase.from('expenses').insert({...expenseForm,amount:Number(expenseForm.amount)});if(error)return setNotice(error.message);setExpenseForm({...expenseForm,amount:'',purpose:'',approved_by:''});setNotice('Expense recorded.');refresh()}
   async function saveTarget(e){
@@ -156,7 +188,7 @@ export default function Home() {
       <main className="main"><div className="hero"><div><h2>{tab}</h2><p>Transparent stewardship for the Buea regional vehicle project.</p></div><button className="btn btn-soft" onClick={refresh}>Refresh data</button></div>{notice&&<div className={`notice ${notice.includes('success')||notice.includes('recorded')||notice.includes('added')||notice.includes('saved')?'success':''}`}>{notice}</div>}
         {tab==='Dashboard'&&<Dashboard stats={stats} groupStats={groupStats} vows={vows} carTarget={Number(projectSettings.car_target_amount||0)} carryoverLabel={projectSettings.carryover_label||DEFAULT_CARRYOVER_LABEL}/>} 
         {tab==='Members'&&<Members members={members} groups={groups} form={memberForm} setForm={setMemberForm} submit={addMember}/>} 
-        {tab==='Vows'&&<Vows vows={vows} members={members} form={vowForm} setForm={setVowForm} submit={addVow} stats={stats} carTarget={Number(projectSettings.car_target_amount||0)} carryoverLabel={projectSettings.carryover_label||DEFAULT_CARRYOVER_LABEL}/>} 
+        {tab==='Vows'&&<Vows vows={vows} members={members} form={vowForm} setForm={setVowForm} submit={addVow} updateVow={updateVow} stats={stats} carTarget={Number(projectSettings.car_target_amount||0)} carryoverLabel={projectSettings.carryover_label||DEFAULT_CARRYOVER_LABEL}/>} 
         {tab==='Contributions'&&<Contributions data={contributions} vows={vows} members={members} form={contribForm} setForm={setContribForm} submit={addContribution}/>} 
         {tab==='Expenses'&&<Expenses data={expenses} form={expenseForm} setForm={setExpenseForm} submit={addExpense}/>} 
         {tab==='AI Reminders'&&<AIReminders members={members} vows={vows} selected={aiMember} setSelected={setAiMember} draft={aiDraft} setDraft={setAiDraft} generate={generateReminder} send={sendWhatsApp} openSMS={openSMS} busy={aiBusy}/>} 
@@ -235,8 +267,11 @@ function Members({members,groups,form,setForm,submit}){
     </section>
   </>
 }
-function Vows({vows,members,form,setForm,submit,stats,carTarget,carryoverLabel}){
+function Vows({vows,members,form,setForm,submit,updateVow,stats,carTarget,carryoverLabel}){
   const [copyState,setCopyState]=useState('')
+  const [editingId,setEditingId]=useState('')
+  const [editForm,setEditForm]=useState({member_id:'',amount_pledged:'',notes:''})
+  const [savingEdit,setSavingEdit]=useState(false)
   const sortedVows=[...vows].sort((a,b)=>a.member_name.localeCompare(b.member_name)||a.vow_sequence-b.vow_sequence)
   const commitmentLeft=carTarget>0?Math.max(carTarget-stats.committed,0):0
   const cashLeft=carTarget>0?Math.max(carTarget-stats.paidOrCarryover,0):0
@@ -263,10 +298,28 @@ function Vows({vows,members,form,setForm,submit,stats,carTarget,carryoverLabel})
   const copyForWhatsApp=async()=>{
     try{await navigator.clipboard.writeText(whatsAppText);setCopyState('Copied — ready to paste in WhatsApp.')}catch{setCopyState('Copy failed. Select the text below and copy it manually.')}
   }
+  const startEdit=v=>{
+    setEditingId(v.id)
+    setEditForm({member_id:v.member_id,amount_pledged:String(v.amount_pledged),notes:v.notes||''})
+  }
+  const cancelEdit=()=>{
+    setEditingId('')
+    setEditForm({member_id:'',amount_pledged:'',notes:''})
+  }
+  const saveEdit=async e=>{
+    e.preventDefault()
+    setSavingEdit(true)
+    const saved=await updateVow(editingId,editForm)
+    setSavingEdit(false)
+    if(saved)cancelEdit()
+  }
   return <>
     <section className="panel"><h3>Record a vow</h3><div className="notice">A second vow is allowed only after the previous vow balance is zero. New vows reduce the target's <strong>commitment balance</strong>; only actual payments and carryover reduce the <strong>cash still needed</strong>.</div><form className="form-grid" onSubmit={submit}><div><label>Member</label><select required value={form.member_id} onChange={e=>setForm({...form,member_id:e.target.value})}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name} — {m.groups?.name}</option>)}</select></div><div><label>Vow amount (FCFA)</label><input required min="1" type="number" value={form.amount_pledged} onChange={e=>setForm({...form,amount_pledged:e.target.value})}/></div><div className="wide"><label>Notes</label><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div><div><button className="btn btn-primary">Record vow</button></div></form></section>
     <section className="panel whatsapp-post-panel"><div className="section-action-head"><div><h3>WhatsApp vow posting list</h3><p>Automatically sorted alphabetically by member name. The carryover/opening contribution is shown as paid/carryover, followed by vow, paid and balance figures.</p></div><button className="btn btn-primary" type="button" onClick={copyForWhatsApp}>Copy for WhatsApp</button></div>{copyState&&<div className={`notice ${copyState.startsWith('Copied')?'success':'error'}`}>{copyState}</div>}<textarea className="whatsapp-copy-box" readOnly value={whatsAppText}/></section>
-    <section className="panel"><h3>Vow register — alphabetical</h3><div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow #</th><th>Vowed</th><th>Given</th><th>Balance</th><th>Status</th></tr></thead><tbody>{sortedVows.map(v=><tr key={v.id}><td>{v.member_name}</td><td>{v.group_name}</td><td><span className="badge">{v.vow_sequence}</span></td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td><td><span className={`badge ${Number(v.balance)<=0?'green':'red'}`}>{Number(v.balance)<=0?'Paid':'Outstanding'}</span></td></tr>)}</tbody></table></div></section>
+    <section className="panel">
+      <div className="section-action-head"><div><h3>Vow register — alphabetical</h3><p>Use <strong>Edit</strong> to correct a wrongly entered vow. Amount and notes can be corrected; the member can be changed only before any payment is attached.</p></div></div>
+      <div className="table-wrap"><table className="table"><thead><tr><th>Name</th><th>Group</th><th>Vow #</th><th>Vowed</th><th>Given</th><th>Balance</th><th>Status</th><th>Action</th></tr></thead><tbody>{sortedVows.map(v=><Fragment key={v.id}><tr><td>{v.member_name}</td><td>{v.group_name}</td><td><span className="badge">{v.vow_sequence}</span></td><td>{money(v.amount_pledged)}</td><td>{money(v.amount_paid)}</td><td>{money(v.balance)}</td><td><span className={`badge ${Number(v.balance)<=0?'green':'red'}`}>{Number(v.balance)<=0?'Paid':'Outstanding'}</span></td><td><button className="btn btn-soft btn-small" type="button" onClick={()=>editingId===v.id?cancelEdit():startEdit(v)}>{editingId===v.id?'Cancel':'Edit'}</button></td></tr>{editingId===v.id&&<tr className="vow-edit-row"><td colSpan="8"><form className="vow-edit-form" onSubmit={saveEdit}><div><label>Member</label><select required value={editForm.member_id} disabled={Number(v.amount_paid||0)>0} onChange={e=>setEditForm({...editForm,member_id:e.target.value})}>{members.map(m=><option key={m.id} value={m.id}>{m.full_name} — {m.groups?.name}</option>)}</select>{Number(v.amount_paid||0)>0&&<small className="field-help">Locked because a payment is already attached to this vow.</small>}</div><div><label>Correct vow amount (FCFA)</label><input required min={Math.max(1,Number(v.amount_paid||0))} type="number" value={editForm.amount_pledged} onChange={e=>setEditForm({...editForm,amount_pledged:e.target.value})}/><small className="field-help">Cannot be lower than the amount already paid.</small></div><div className="vow-edit-notes"><label>Notes</label><input value={editForm.notes} onChange={e=>setEditForm({...editForm,notes:e.target.value})}/></div><div className="vow-edit-actions"><button className="btn btn-primary" disabled={savingEdit}>{savingEdit?'Saving…':'Save correction'}</button><button className="btn btn-outline" type="button" disabled={savingEdit} onClick={cancelEdit}>Cancel</button></div></form></td></tr>}</Fragment>)}</tbody></table></div>
+    </section>
   </>
 }
 function Contributions({data,vows,members,form,setForm,submit}){const memberVows=vows.filter(v=>!form.member_id||v.member_id===form.member_id);return <><section className="panel"><h3>Record contribution received</h3><form className="form-grid" onSubmit={submit}><div><label>Member</label><select required value={form.member_id} onChange={e=>setForm({...form,member_id:e.target.value,vow_id:''})}><option value="">Select member</option>{members.map(m=><option key={m.id} value={m.id}>{m.full_name}</option>)}</select></div><div><label>Vow</label><select required value={form.vow_id} onChange={e=>setForm({...form,vow_id:e.target.value})}><option value="">Select vow</option>{memberVows.map(v=><option key={v.id} value={v.id}>Vow {v.vow_sequence} — balance {money(v.balance)}</option>)}</select></div><div><label>Amount received</label><input type="number" min="1" required value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></div><div><label>Date</label><input type="date" required value={form.payment_date} onChange={e=>setForm({...form,payment_date:e.target.value})}/></div><div><label>Method</label><select value={form.method} onChange={e=>setForm({...form,method:e.target.value})}><option>Cash</option><option>Mobile Money</option><option>Bank</option><option>Other</option></select></div><div className="wide"><label>Notes / receipt reference</label><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div><div><button className="btn btn-primary">Save contribution</button></div></form></section><section className="panel"><h3>Contribution history</h3><div className="table-wrap"><table className="table"><thead><tr><th>Date</th><th>Name</th><th>Vow #</th><th>Amount</th><th>Method</th><th>Notes</th></tr></thead><tbody>{data.map(c=><tr key={c.id}><td>{c.payment_date}</td><td>{c.members?.full_name}</td><td>{c.vows?.vow_sequence}</td><td>{money(c.amount)}</td><td>{c.method}</td><td>{c.notes||'—'}</td></tr>)}</tbody></table></div></section></>}
