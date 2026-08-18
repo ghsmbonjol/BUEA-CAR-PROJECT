@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/supabase'
+import { getGroqModel } from '@/lib/groq'
 
 export async function POST(request) {
   try {
@@ -25,7 +26,7 @@ Tone requirements: warm, human, respectful, concise, spiritually appropriate, no
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        model: getGroqModel(),
         temperature: 0.55,
         max_completion_tokens: 320,
         messages: [

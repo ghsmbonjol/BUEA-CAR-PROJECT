@@ -109,6 +109,8 @@ Copy `.env.example` and configure the same names in Vercel. The following secret
 
 Do not prefix secret keys with `NEXT_PUBLIC_`.
 
+`GROQ_MODEL` should be set to `openai/gpt-oss-120b`. The app also automatically replaces the retired `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` values with `openai/gpt-oss-120b`, so an older Vercel environment variable will not break AI reminders after deployment.
+
 ## Groq AI behaviour
 
 The AI is deliberately instructed to:
